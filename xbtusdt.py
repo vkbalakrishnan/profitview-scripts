@@ -61,7 +61,7 @@ class Trading(Link):
 		
 		# symbol config
 		self.sym = 'XBTUSDT'                        # symbol we will trade
-		self.size_precision = 0.001					# min step for size
+		self.size_precision = 1000					# min step for size
 		self.price_precision = 0.5					# min step for price
 		self.price_decimals = 1						# decimals to round of for price
 		
@@ -201,16 +201,16 @@ class Trading(Link):
 		bsize = self.round_value(bsize, self.size_precision)
 		asize = self.round_value(asize, self.size_precision)
 		
-		# logger.info("\n"+json.dumps({
-		# 	'risk_side': self.risk_side,
-		# 	'max_order_size': self.max_order_size,
-		# 	'risk': self.risk,
-		# 	'skew': skew,
-		# 	'half_spread': half_spread,
-		# 	'spread': self.spread,
-		# 	'mid': self.mid,
-		# 	'order': {'bid': (bid, bsize), 'ask': (ask, asize)}
-		# }))
+		logger.info("\n"+json.dumps({
+			'risk_side': self.risk_side,
+			'max_order_size': self.max_order_size,
+			'risk': self.risk,
+			'skew': skew,
+			'half_spread': half_spread,
+			'spread': self.spread,
+			'mid': self.mid,
+			'order': {'bid': (bid, bsize), 'ask': (ask, asize)}
+		}))
 		return {'bid': (bid, bsize), 'ask': (ask, asize)}
 		
 	@debounce(1)

@@ -78,13 +78,13 @@ class Trading(Link):
 		# ALGO PARAMS
 		self.skew_damp = 2                          # skew dampening
 		self.max_order_size = 100000                # max position risk limit
-		self.max_risk_size = 1500000					# max size for current position
-		self.sharpe_target = 2                     # target sharpe ratio
-		self.fee_cost = -0.5                     	# cost of entering and exiting position
+		self.max_risk_size = 1500000				# max size for current position
+		self.sharpe_target = 2                     	# target sharpe ratio
+		self.fee_cost = -0.0002                     # cost of entering and exiting position
 		# ETHUSDT BitMEX spread params
 		# 1e-4 -> super tight spread - good for volume generation, keep a look out for risky positions
 		# 10e-4 -> thin spread - wont fill unless the market moves
-		self.min_spread = 4e-4                      # minimum spread 
+		self.min_spread = 1e-4                      # minimum spread 
 		
 		
 		# RUN ON STARTUP

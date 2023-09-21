@@ -78,13 +78,13 @@ class Trading(Link):
 		# ALGO PARAMS
 		self.skew_damp = 2                          # skew dampening
 		self.max_order_size = 100000                # max position risk limit
-		self.max_risk_size = 1500000				# max size for current position
-		self.sharpe_target = 2                     	# target sharpe ratio
+		self.max_risk_size = 500000					# max size for current position
+		self.sharpe_target = 2                   	# target sharpe ratio
 		self.fee_cost = -0.0002                     # cost of entering and exiting position (bps/10000)
 		# ETHUSDT BitMEX spread params
 		# 1e-4 -> super tight spread - good for volume generation, keep a look out for risky positions
 		# 10e-4 -> thin spread - wont fill unless the market moves
-		self.min_spread = 1e-4                      # minimum spread 
+		self.min_spread = 2e-4                      # minimum spread 
 		
 		
 		# RUN ON STARTUP
@@ -201,16 +201,16 @@ class Trading(Link):
 		bsize = self.round_value(bsize, self.size_precision)
 		asize = self.round_value(asize, self.size_precision)
 		
-		logger.info("\n"+json.dumps({
-			'risk_side': self.risk_side,
-			'max_order_size': self.max_order_size,
-			'risk': self.risk,
-			'skew': skew,
-			'half_spread': half_spread,
-			'spread': self.spread,
-			'mid': self.mid,
-			'order': {'bid': (bid, bsize), 'ask': (ask, asize)}
-		}))
+		# logger.info("\n"+json.dumps({
+		# 	'risk_side': self.risk_side,
+		# 	'max_order_size': self.max_order_size,
+		# 	'risk': self.risk,
+		# 	'skew': skew,
+		# 	'half_spread': half_spread,
+		# 	'spread': self.spread,
+		# 	'mid': self.mid,
+		# 	'order': {'bid': (bid, bsize), 'ask': (ask, asize)}
+		# }))
 		return {'bid': (bid, bsize), 'ask': (ask, asize)}
 		
 	@debounce(1)
@@ -254,7 +254,7 @@ class Trading(Link):
 					cancels.extend([x['order_id'] for x in remain])
 				
 				elif size > 0:
-					inserts.append({'sym': self.sym, 'side': side, 'size': size, 'price': price})
+					inserts.append({'symbol': self.sym, 'side': side, 'orderQty': size, 'price': price})
 					
 			for order_id in cancels:
 				for x in self.cancel_order(self.venue, order_id=order_id)['data']:
@@ -263,7 +263,6 @@ class Trading(Link):
 				
 			for update in updates:
 				try :				
-					logger.info(json.dumps(update))
 					data = self.amend_order(self.venue, **update)['data']
 					key = 'bid' if data['side'] == 'Buy' else 'ask'
 					self.orders[key][data['order_id']] = data
@@ -276,9 +275,29 @@ class Trading(Link):
 				
 			try: 
 				for insert in inserts:
-					data = self.create_limit_order(self.venue, **insert)['data']
+					response = self.call_endpoint(
+						self.venue, 
+						'order', 
+						'private', 
+						method='POST', params={
+							**insert,
+							'ordType': 'Limit',
+							'execInst': 'ParticipateDoNotInitiate'
+						}
+					)
+					data = {
+						"sym": "XBTUSD",
+						"side": response['side'],
+						"order_price": float(response['price']),
+						"order_size": float(response['orderQty']),
+						"remain_size": float(response['leavesQty']),
+						"order_type": "LIMIT",
+						"time": response['transactTime'],
+						"order_id": response['orderID'],
+					}
 					key = 'bid' if data['side'] == 'Buy' else 'ask'
 					self.orders[key][data['order_id']] = data
+					
 			except: 
 				logger.info('error create_limit_order')
 				self.fetch_current_risk()

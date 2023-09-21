@@ -272,13 +272,17 @@ class Trading(Link):
 					self.orders[key][data['order_id']] = data
 				except:
 					logger.info("cancelling order "+ json.dumps(update))
-					self.cancel_order(self.venue, update['order_id'], self.sym)
+					self.cancel_order(self.venue, update['order_id'])
 					self.fetch_current_risk()
 				
-			for insert in inserts:
-				data = self.create_limit_order(self.venue, **insert)['data']
-				key = 'bid' if data['side'] == 'Buy' else 'ask'
-				self.orders[key][data['order_id']] = data
+			try: 
+				for insert in inserts:
+					data = self.create_limit_order(self.venue, **insert)['data']
+					key = 'bid' if data['side'] == 'Buy' else 'ask'
+					self.orders[key][data['order_id']] = data
+			except: 
+				logger.info('error create_limit_order')
+				self.fetch_current_risk()
 				
 		logger.info('\n' + json.dumps(log_msg))
 			

@@ -77,14 +77,14 @@ class Trading(Link):
 		
 		# ALGO PARAMS
 		self.skew_damp = 2                          # skew dampening
-		self.max_order_size = 10000                # max position risk limit
-		self.max_risk_size = 1000000					# max size for current position
-		self.sharpe_target = 2                      # target sharpe ratio
-		self.fee_cost = -0.0002                     	# cost of entering and exiting position
+		self.max_order_size = 100000                # max position risk limit
+		self.max_risk_size = 1500000					# max size for current position
+		self.sharpe_target = 2                     # target sharpe ratio
+		self.fee_cost = -0.5                     	# cost of entering and exiting position
 		# ETHUSDT BitMEX spread params
 		# 1e-4 -> super tight spread - good for volume generation, keep a look out for risky positions
 		# 10e-4 -> thin spread - wont fill unless the market moves
-		self.min_spread = 1e-4                      # minimum spread 
+		self.min_spread = 4e-4                      # minimum spread 
 		
 		
 		# RUN ON STARTUP
@@ -117,7 +117,7 @@ class Trading(Link):
 				sign = 1 if x['side'] == 'Buy' else -1
 				self.risk = sign * x['pos_size']
 				self.risk_side = x['side']
-				logger.info(x)
+
 	def init_garch_var(self):
 		closes = self.last_closes
 		shifted = np.append([np.nan], closes[1:])
@@ -272,13 +272,18 @@ class Trading(Link):
 					self.orders[key][data['order_id']] = data
 				except:
 					logger.info("cancelling order "+ json.dumps(update))
-					self.cancel_order(self.venue, update['order_id'], self.sym)
+					self.cancel_order(self.venue, update['order_id'])
 					self.fetch_current_risk()
 				
-			for insert in inserts:
-				data = self.create_limit_order(self.venue, **insert)['data']
-				key = 'bid' if data['side'] == 'Buy' else 'ask'
-				self.orders[key][data['order_id']] = data
+			try: 
+				for insert in inserts:
+					data = self.create_limit_order(self.venue, **insert)['data']
+					key = 'bid' if data['side'] == 'Buy' else 'ask'
+					self.orders[key][data['order_id']] = data
+			except: 
+				logger.info('error create_limit_order')
+				self.fetch_current_risk()
+				
 				
 		logger.info('\n' + json.dumps(log_msg))
 			

@@ -265,14 +265,13 @@ class Trading(Link):
 				try :				
 					logger.info(json.dumps(update))
 					data = self.amend_order(self.venue, **update)['data']
-				# if(update.size != 0.0) : 
-				# else:
-				# 	data = self.cancel_order(self.venue, update.order_id)
 					key = 'bid' if data['side'] == 'Buy' else 'ask'
 					self.orders[key][data['order_id']] = data
 				except:
-					logger.info("cancelling order "+ json.dumps(update))
-					self.cancel_order(self.venue, update['order_id'])
+					logger.info("cancelling orders "+ json.dumps(update))
+					for x in self.cancel_order(self.venue, order_id=update['order_id'])['data']:
+						key = 'bid' if x['side'] == 'Buy' else 'ask'
+						self.orders[key].pop(x['order_id'], None)
 					self.fetch_current_risk()
 				
 			try: 

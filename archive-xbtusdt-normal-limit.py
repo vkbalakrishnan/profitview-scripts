@@ -60,10 +60,10 @@ class Trading(Link):
 		self.time_step = TIME_LOOKUP[self.level]    # time step in milliseconds
 		
 		# symbol config
-		self.sym = 'ETHUSDT'                        # symbol we will trade
-		self.size_precision = 0.001					# min step for size
-		self.price_precision = 0.05					# min step for price
-		self.price_decimals = 2						# decimals to round of for price
+		self.sym = 'XBTUSDT'                        # symbol we will trade
+		self.size_precision = 1000					# min step for size
+		self.price_precision = 0.5					# min step for price
+		self.price_decimals = 1						# decimals to round of for price
 		
 		# ALGO STRATEGY STATE
 		self.closes = dict()                        # time bin -> close price
@@ -76,15 +76,15 @@ class Trading(Link):
 		self.risk_side = ''
 		
 		# ALGO PARAMS
-		self.skew_damp = 4                          # skew dampening
+		self.skew_damp = 2                          # skew dampening
 		self.max_order_size = 100000                # max position risk limit
-		self.max_risk_size = 1000000				# max size for current position
-		self.sharpe_target = 2                      # target sharpe ratio
+		self.max_risk_size = 1500000				# max size for current position
+		self.sharpe_target = 2                     	# target sharpe ratio
 		self.fee_cost = -0.0002                     # cost of entering and exiting position (bps/10000)
 		# ETHUSDT BitMEX spread params
 		# 1e-4 -> super tight spread - good for volume generation, keep a look out for risky positions
 		# 10e-4 -> thin spread - wont fill unless the market moves
-		self.min_spread = 5e-4                      # minimum spread 
+		self.min_spread = 1e-4                      # minimum spread 
 		
 		
 		# RUN ON STARTUP
@@ -201,16 +201,16 @@ class Trading(Link):
 		bsize = self.round_value(bsize, self.size_precision)
 		asize = self.round_value(asize, self.size_precision)
 		
-		# logger.info("\n"+json.dumps({
-		# 	'risk_side': self.risk_side,
-		# 	'max_order_size': self.max_order_size,
-		# 	'risk': self.risk,
-		# 	'skew': skew,
-		# 	'half_spread': half_spread,
-		# 	'spread': self.spread,
-		# 	'mid': self.mid,
-		# 	'order': {'bid': (bid, bsize), 'ask': (ask, asize)}
-		# }))
+		logger.info("\n"+json.dumps({
+			'risk_side': self.risk_side,
+			'max_order_size': self.max_order_size,
+			'risk': self.risk,
+			'skew': skew,
+			'half_spread': half_spread,
+			'spread': self.spread,
+			'mid': self.mid,
+			'order': {'bid': (bid, bsize), 'ask': (ask, asize)}
+		}))
 		return {'bid': (bid, bsize), 'ask': (ask, asize)}
 		
 	@debounce(1)
@@ -254,54 +254,34 @@ class Trading(Link):
 					cancels.extend([x['order_id'] for x in remain])
 				
 				elif size > 0:
-					inserts.append({'symbol': self.sym, 'side': side, 'orderQty': size, 'price': price})
+					inserts.append({'sym': self.sym, 'side': side, 'size': size, 'price': price})
 					
 			for order_id in cancels:
-				for x in self.cancel_order(self.venue, order_id=order_id, sym=self.sym)['data']:
+				for x in self.cancel_order(self.venue, order_id=order_id)['data']:
 					key = 'bid' if x['side'] == 'Buy' else 'ask'
 					self.orders[key].pop(x['order_id'], None)
-					
+				
 			for update in updates:
 				try :				
+					logger.info(json.dumps(update))
 					data = self.amend_order(self.venue, **update)['data']
 					key = 'bid' if data['side'] == 'Buy' else 'ask'
 					self.orders[key][data['order_id']] = data
+				except:
+					logger.info("cancelling orders "+ json.dumps(update))
+					for x in self.cancel_order(self.venue, order_id=update['order_id'])['data']:
+						key = 'bid' if x['side'] == 'Buy' else 'ask'
+						self.orders[key].pop(x['order_id'], None)
+					self.fetch_current_risk()
 				
-				except Exception as err:
-					logger.info('Error cancelling update order')
-					logger.info(err)
-
-			for insert in inserts:
-				try:
-					response = self.call_endpoint(
-						self.venue, 
-						'order', 
-						'private', 
-						method='POST', params={
-							**insert,
-							'ordType': 'Limit',
-							'execInst': 'ParticipateDoNotInitiate'
-						}
-					)
-					if response['data'] is not None:
-						data = {
-							"sym": "XBTUSD",
-							"side": response['data']['side'],
-							"order_price": float(response['data']['price']),
-							"order_size": float(response['data']['orderQty']),
-							"remain_size": float(response['data']['leavesQty']),
-							"order_type": "LIMIT",
-							"time": response['data']['transactTime'],
-							"order_id": response['data']['orderID'],
-						}
-						key = 'bid' if data['side'] == 'Buy' else 'ask'
-						self.orders[key][data['order_id']] = data
-					else:
-						logger.info('create limit order response: None -'+ reponse)
-
-				except Exception as err: 
-					logger.info('error create_limit_order')
-					logger.info(err)
+			try: 
+				for insert in inserts:
+					data = self.create_limit_order(self.venue, **insert)['data']
+					key = 'bid' if data['side'] == 'Buy' else 'ask'
+					self.orders[key][data['order_id']] = data
+			except: 
+				logger.info('error create_limit_order')
+				self.fetch_current_risk()
 				
 				
 		logger.info('\n' + json.dumps(log_msg))

@@ -54,16 +54,16 @@ class Trading(Link):
 		super().__init__()
 		# ALGO PARAMS
 		self.src = 'bitmex'                         # exchange name
-		self.venue = 'BitMEX-Pro'                   # API key name
+		self.venue = 'BitMEX'                   # API key name
 		self.level = '1m'                           # OHLC candle granularity
 		self.lookback = 150                         # lookback period of close prices 
 		self.time_step = TIME_LOOKUP[self.level]    # time step in milliseconds
 		
 		# symbol config
-		self.sym = 'ETHUSDT'                        # symbol we will trade
-		self.size_precision = 0.001					# min step for size
-		self.price_precision = 0.05					# min step for price
-		self.price_decimals = 2						# decimals to round of for price
+		self.sym = 'XBTUSD'                        # symbol we will trade
+		self.size_precision = 100					# min step for size
+		self.price_precision = 0.5					# min step for price
+		self.price_decimals = 1						# decimals to round of for price
 		
 		# ALGO STRATEGY STATE
 		self.closes = dict()                        # time bin -> close price
@@ -76,15 +76,15 @@ class Trading(Link):
 		self.risk_side = ''
 		
 		# ALGO PARAMS
-		self.skew_damp = 4                          # skew dampening
-		self.max_order_size = 100000                # max position risk limit
-		self.max_risk_size = 1000000				# max size for current position
-		self.sharpe_target = 2                      # target sharpe ratio
+		self.skew_damp = 2                          # skew dampening
+		self.max_order_size = 5000                # max position risk limit
+		self.max_risk_size = 100000					# max size for current position
+		self.sharpe_target = 2                   	# target sharpe ratio
 		self.fee_cost = -0.0002                     # cost of entering and exiting position (bps/10000)
 		# ETHUSDT BitMEX spread params
 		# 1e-4 -> super tight spread - good for volume generation, keep a look out for risky positions
 		# 10e-4 -> thin spread - wont fill unless the market moves
-		self.min_spread = 5e-4                      # minimum spread 
+		self.min_spread = 10e-4                      # minimum spread 
 		
 		
 		# RUN ON STARTUP

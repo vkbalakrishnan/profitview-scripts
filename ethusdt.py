@@ -259,7 +259,7 @@ class Trading(Link):
 					if self.post_only is True:
 						new_order = {'symbol': self.sym, 'side': side, 'orderQty': size, 'price': price}
 					else:
-						new_order = {'sym': self.sym, 'side': side, 'orderQty': size, 'price': price}
+						new_order = {'sym': self.sym, 'side': side, 'size': size, 'price': price}
 					inserts.append(new_order)
 					
 			for order_id in cancels:

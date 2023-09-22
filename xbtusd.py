@@ -255,7 +255,11 @@ class Trading(Link):
 					cancels.extend([x['order_id'] for x in remain])
 				
 				elif size > 0:
-					inserts.append({'symbol': self.sym, 'side': side, 'orderQty': size, 'price': price})
+					if self.post_only is True:
+						new_order = {'symbol': self.sym, 'side': side, 'orderQty': size, 'price': price}
+					else:
+						new_order = {'sym': self.sym, 'side': side, 'orderQty': size, 'price': price}
+					inserts.append(new_order)
 					
 			for order_id in cancels:
 				for x in self.cancel_order(self.venue, order_id=order_id, sym=self.sym)['data']:

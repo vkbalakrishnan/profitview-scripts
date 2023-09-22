@@ -292,7 +292,7 @@ class Trading(Link):
 						)
 						if response['data'] is not None:
 							data = {
-								"sym": "XBTUSD",
+								"sym": self.sym,
 								"side": response['data']['side'],
 								"order_price": float(response['data']['price']),
 								"order_size": float(response['data']['orderQty']),

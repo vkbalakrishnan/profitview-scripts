@@ -47,7 +47,6 @@ def debounce(wait):
 	return decorator
 
 
-
 class Trading(Link):
 	
 	def __init__(self):
@@ -260,7 +259,6 @@ class Trading(Link):
 						new_order = {'symbol': self.sym, 'side': side, 'orderQty': size, 'price': price}
 					else:
 						new_order = {'sym': self.sym, 'side': side, 'size': size, 'price': price}
-
 					inserts.append(new_order)
 					
 			for order_id in cancels:
@@ -280,7 +278,7 @@ class Trading(Link):
 
 			for insert in inserts:
 				try:
-					if self.post_only is true:
+					if self.post_only is True:
 						# start post only order
 						response = self.call_endpoint(
 							self.venue, 
@@ -294,7 +292,7 @@ class Trading(Link):
 						)
 						if response['data'] is not None:
 							data = {
-								"sym": "XBTUSD",
+								"sym": self.sym,
 								"side": response['data']['side'],
 								"order_price": float(response['data']['price']),
 								"order_size": float(response['data']['orderQty']),

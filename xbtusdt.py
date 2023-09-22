@@ -260,7 +260,7 @@ class Trading(Link):
 				for x in self.cancel_order(self.venue, order_id=order_id)['data']:
 					key = 'bid' if x['side'] == 'Buy' else 'ask'
 					self.orders[key].pop(x['order_id'], None)
-				
+					
 			for update in updates:
 				try :				
 					data = self.amend_order(self.venue, **update)['data']
@@ -268,13 +268,16 @@ class Trading(Link):
 					self.orders[key][data['order_id']] = data
 				except:
 					logger.info("cancelling orders "+ json.dumps(update))
-					for x in self.cancel_order(self.venue, order_id=update['order_id'])['data']:
-						key = 'bid' if x['side'] == 'Buy' else 'ask'
-						self.orders[key].pop(x['order_id'], None)
-					self.fetch_current_risk()
-				
-			try: 
-				for insert in inserts:
+					try:
+						for x in self.cancel_order(self.venue, order_id=update['order_id'])['data']:
+							key = 'bid' if x['side'] == 'Buy' else 'ask'
+							self.orders[key].pop(x['order_id'], None)
+						self.fetch_current_risk()
+					except Exception as err:
+						logger.info('Error cancelling update order')
+						logger.info(err)
+			for insert in inserts:
+				try:
 					response = self.call_endpoint(
 						self.venue, 
 						'order', 
@@ -285,22 +288,26 @@ class Trading(Link):
 							'execInst': 'ParticipateDoNotInitiate'
 						}
 					)
-					data = {
-						"sym": "XBTUSD",
-						"side": response['side'],
-						"order_price": float(response['price']),
-						"order_size": float(response['orderQty']),
-						"remain_size": float(response['leavesQty']),
-						"order_type": "LIMIT",
-						"time": response['transactTime'],
-						"order_id": response['orderID'],
-					}
-					key = 'bid' if data['side'] == 'Buy' else 'ask'
-					self.orders[key][data['order_id']] = data
-					
-			except: 
-				logger.info('error create_limit_order')
-				self.fetch_current_risk()
+					if response is not None:
+						data = {
+							"sym": "XBTUSD",
+							"side": response['side'],
+							"order_price": float(response['price']),
+							"order_size": float(response['orderQty']),
+							"remain_size": float(response['leavesQty']),
+							"order_type": "LIMIT",
+							"time": response['transactTime'],
+							"order_id": response['orderID'],
+						}
+						key = 'bid' if data['side'] == 'Buy' else 'ask'
+						self.orders[key][data['order_id']] = data
+					else:
+						logger.info('create limit order response: None -'+ reponse)
+
+				except Exception as err: 
+					logger.info('error create_limit_order')
+					logger.info(err)
+					self.fetch_current_risk()
 				
 				
 		logger.info('\n' + json.dumps(log_msg))

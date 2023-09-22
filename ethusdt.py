@@ -87,6 +87,8 @@ class Trading(Link):
 		self.min_spread = 5e-4                      # minimum spread 
 		
 		
+		# ORDER TYPE
+		self.post_only = True 						# false for normal limit order which may cross the book	
 		# RUN ON STARTUP
 		self.on_startup()
 
@@ -273,31 +275,40 @@ class Trading(Link):
 
 			for insert in inserts:
 				try:
-					response = self.call_endpoint(
-						self.venue, 
-						'order', 
-						'private', 
-						method='POST', params={
-							**insert,
-							'ordType': 'Limit',
-							'execInst': 'ParticipateDoNotInitiate'
-						}
-					)
-					if response['data'] is not None:
-						data = {
-							"sym": "XBTUSD",
-							"side": response['data']['side'],
-							"order_price": float(response['data']['price']),
-							"order_size": float(response['data']['orderQty']),
-							"remain_size": float(response['data']['leavesQty']),
-							"order_type": "LIMIT",
-							"time": response['data']['transactTime'],
-							"order_id": response['data']['orderID'],
-						}
+					if self.post_only is True:
+						# start post only order
+						response = self.call_endpoint(
+							self.venue, 
+							'order', 
+							'private', 
+							method='POST', params={
+								**insert,
+								'ordType': 'Limit',
+								'execInst': 'ParticipateDoNotInitiate'
+							}
+						)
+						if response['data'] is not None:
+							data = {
+								"sym": "XBTUSD",
+								"side": response['data']['side'],
+								"order_price": float(response['data']['price']),
+								"order_size": float(response['data']['orderQty']),
+								"remain_size": float(response['data']['leavesQty']),
+								"order_type": "LIMIT",
+								"time": response['data']['transactTime'],
+								"order_id": response['data']['orderID'],
+							}
+							key = 'bid' if data['side'] == 'Buy' else 'ask'
+							self.orders[key][data['order_id']] = data
+						else:
+							logger.info('create limit order response: None -'+ reponse)
+						# end post only order
+					else :
+						# # start normal limit order
+						data = self.create_limit_order(self.venue, **insert)['data']
 						key = 'bid' if data['side'] == 'Buy' else 'ask'
 						self.orders[key][data['order_id']] = data
-					else:
-						logger.info('create limit order response: None -'+ reponse)
+						# # end normal limit order
 
 				except Exception as err: 
 					logger.info('error create_limit_order')

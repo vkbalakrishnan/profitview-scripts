@@ -87,7 +87,7 @@ class Trading(Link):
 		self.min_spread = 10e-4                      # minimum spread 
 		
 		# ORDER TYPE
-		self.post_only = True 						# false for normal limit order which may cross the book	
+		self.post_only = True 						# `True` for post only / `False` for normal limit order which may cross the book	
 		# RUN ON STARTUP
 		self.on_startup()
 

@@ -47,22 +47,28 @@ class Trading(Link):
         self.sym = {
 			'XBTUSDT' : {
 				'sym': 'XBTUSDT',
-				'grid_size': 2000,
+				'grid_size': 20000,
 				'candles': {},
-				'tob': (np.nan, np.nan)
+				'tob': (np.nan, np.nan),
+				'max_risk': 100000,
+				'current_risk': 0
 			}, 
-			'XBTUSD' : {
+			'ETHUSDT' : {
 				'sym': 'ETHUSDT',
-				'grid_size': 1000,
+				'grid_size': 10000,
 				'candles': {},
-				'tob': (np.nan, np.nan)
-			}, 
-			'SOLUSDT' : {
-				'sym': 'SOLUSDT',
-				'grid_size': 100000,
-				'candles': {},
-				'tob': (np.nan, np.nan)
-			}
+				'tob': (np.nan, np.nan),
+				'max_risk': 50000,
+				'current_risk': 0
+			} 
+			# 'SOLUSDT' : {
+			# 	'sym': 'SOLUSDT',
+			# 	'grid_size': 10000,
+			# 	'candles': {},
+			# 	'tob': (np.nan, np.nan),
+			# 	'max_risk': 100000,
+			# 	'current_risk': 0
+			# }
 		}                          # symbol we will trade
         self.on_start()	
     
@@ -79,19 +85,14 @@ class Trading(Link):
 		return RSI(np.append(closes, [closes[-1] * (1 + ret)]))[-1]
 	
 	def minutely_update(self):
+		self.fetch_current_risk()
 		self.update_limit_orders()
         threading.Timer(61 - self.second, self.minutely_update).start()
         
     def fetch_current_risk(self):
-        for x in self.fetch_open_orders(self.venue)['data']:
-            if x['sym'] == self.sym:
-                key = 'bid' if x['side'] == 'Buy' else 'ask'
-                self.orders[key][x['order_id']] = x
-                
-        for x in self.fetch_positions(self.venue)['data']:
-            if x['sym'] == self.sym:
-                sign = 1 if x['side'] == 'Buy' else -1
-                self.risk = sign * x['pos_size']
+       for x in self.fetch_positions(self.venue)['data']:
+			if x['sym'] in self.sym:
+            	self.sym[x['sym']]['current_risk'] = x['pos_size']
   
 
     def orders_intent(self, sym):
@@ -102,17 +103,20 @@ class Trading(Link):
 		Y = [self.hypo_rsi(closes, x) for x in X]
 		func = interp1d(Y, X, kind='cubic', fill_value='extrapolate')
 		# logger.info('\n' + json.dumps({
+		# 	'sym': sym['sym'],
 		# 	'total': 0.5 * round(closes[-1] * (1 + float(func(40))) / 0.5),
 		# 	'close': closes[-1],
+		# 	'closeLength': len(closes),
 		# 	'func': (1 + float(func(40))),
 		# 	'tob': tob_bid,
-		# 	'final_closest_bid': np.min([tob_bid, 0.5 * round(closes[-1] * (1 + float(func(40))) / 0.5)])
+		# 	'final_closest_bid': np.min([tob_bid, 0.5 * round(closes[-1] * (1 + float(func(40))) / 0.5)]),
+		# 	'current_risk': sym['current_risk']
 		# }))
 		orders = {
 			'bids': [np.min([tob_bid, (0.5 * round(closes[-1] * (1 + float(func(x))) / 0.5))]) for x in (40, 30, 20, 10)],
 			'asks': [np.max([tob_ask, (0.5 * round(closes[-1] * (1 + float(func(x))) / 0.5))]) for x in (60, 70, 80, 90)]
 		}
-		logger.info('\n' + json.dumps(orders))
+		logger.info('\n'+ sym['sym'] + ':'+ json.dumps(orders))
 		return orders
     
 	def create_order(self, venue, sym, side, size, price):
@@ -133,11 +137,11 @@ class Trading(Link):
 		for sym in self.sym:
 			tob_bid, tob_ask = self.sym[sym]['tob']
 			if(np.isnan(tob_bid) or np.isnan(tob_ask)):
-				return 
+				continue 
 			intent = self.orders_intent(self.sym[sym])
 			bids = intent['bids']
 			asks = intent['asks']
-
+			
 			log_msg = {
 				'bids': bids,
 				'asks': asks,
@@ -145,15 +149,23 @@ class Trading(Link):
 
 			#cancel all current orders
 			self.cancel_order(self.venue, sym=sym)
-			# Place new orders
+			if(abs(self.sym[sym]['current_risk']) < self.sym[sym]['max_risk'] or self.sym[sym]['current_risk'] <= 0):
+				# If we are at risk limits, place larger orders 
+				multiplyer = 1
+			if(abs(self.sym[sym]['current_risk']) >= self.sym[sym]['max_risk']):
+				multiplyer = 2
 			for bid in bids:
 				self.create_order(self.venue, sym=sym, side='Buy', size=self.sym[sym]['grid_size'], price=bid)		               
-
+			if(abs(self.sym[sym]['current_risk']) < self.sym[sym]['max_risk'] or self.sym[sym]['current_risk'] >= 0):
+				# If we are at risk limits, place larger orders 
+				multiplyer = 1
+			if(abs(self.sym[sym]['current_risk']) >= self.sym[sym]['max_risk']):
+				multiplyer = 2
 			for ask in asks:
 				self.create_order(self.venue, sym=sym, side='Sell', size=self.sym[sym]['grid_size'], price=ask)   
 
 			time.sleep(5)
-			#logger.info('\n' + json.dumps(log_msg))
+			logger.info('\n' + json.dumps(log_msg))
             
 
     def trade_update(self, src, sym, data):

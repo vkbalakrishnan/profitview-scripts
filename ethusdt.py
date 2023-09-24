@@ -46,7 +46,15 @@ def debounce(wait):
 		return debounced
 	return decorator
 
-
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
 
 class Trading(Link):
 	
@@ -78,13 +86,13 @@ class Trading(Link):
 		# ALGO PARAMS
 		self.skew_damp = 4                          # skew dampening
 		self.max_order_size = 100000                # max position risk limit
-		self.max_risk_size = 1000000				# max size for current position
+		self.max_risk_size = 0				# max size for current position
 		self.sharpe_target = 2                      # target sharpe ratio
 		self.fee_cost = -0.0002                     # cost of entering and exiting position (bps/10000)
 		# ETHUSDT BitMEX spread params
 		# 1e-4 -> super tight spread - good for volume generation, keep a look out for risky positions
 		# 10e-4 -> thin spread - wont fill unless the market moves
-		self.min_spread = 5e-4                      # minimum spread 
+		self.min_spread = 1e-5                      # minimum spread 
 		
 		
 		# ORDER TYPE
@@ -138,6 +146,7 @@ class Trading(Link):
 		return np.max([self.min_spread, self.sharpe_target * norm_std + self.fee_cost])        
 		
 	def minutely_update(self):
+		logger.info('running minutely update')
 		# update close prices every one second after each minute
 		if self.time_bin_now not in self.closes:
 			self.closes[self.time_bin_now] = self.last_closes[-1]
@@ -189,30 +198,30 @@ class Trading(Link):
 		bid = np.min([tob_bid, self.round_value(bid, self.price_precision, self.price_decimals)])
 		ask = np.max([tob_ask, self.round_value(ask, self.price_precision, self.price_decimals)])
 		
-		# bsize = np.clip(self.max_order_size - self.risk, 0, self.max_order_size) if self.risk < self.max_order_size else 0
-		# asize = np.clip(self.max_order_size + self.risk, 0, self.max_order_size) if self.risk < self.max_order_size else self.max_order_size
+		bsize = np.clip(self.max_risk_size - self.risk, 0, self.max_order_size) 
+		asize = np.clip(self.max_risk_size + self.risk, 0, self.max_order_size) 
 		
-		if abs(self.risk) > self.max_risk_size:
-			bsize = 0 if self.risk_side == 'Buy' else self.max_order_size
-			asize = 0 if self.risk_side == 'Sell' else self.max_order_size
-			logger.info("exceding limits : "+ json.dumps({'order': {'bid': (bid, bsize), 'ask': (ask, asize)}}))
-		else: 
-			bsize = np.clip(self.max_risk_size - self.risk, 0, self.max_order_size)
-			asize = np.clip(self.max_risk_size + self.risk, 0, self.max_order_size)  
+		if abs(int(self.risk)) >= self.max_risk_size:
+			if self.risk_side == 'Buy':
+				bsize = 0 
+			if self.risk_side == 'Sell':
+				asize = 0 
+			logger.info("exceding limits : "+ json.dumps({'order': {'bid': (bid, bsize), 'ask': (ask, asize)}}), cls=NpEncoder)
+		
 	
 		bsize = self.round_value(bsize, self.size_precision)
 		asize = self.round_value(asize, self.size_precision)
 		
-		# logger.info("\n"+json.dumps({
-		# 	'risk_side': self.risk_side,
-		# 	'max_order_size': self.max_order_size,
-		# 	'risk': self.risk,
-		# 	'skew': skew,
-		# 	'half_spread': half_spread,
-		# 	'spread': self.spread,
-		# 	'mid': self.mid,
-		# 	'order': {'bid': (bid, bsize), 'ask': (ask, asize)}
-		# }))
+		logger.info("\n"+json.dumps({
+			'risk_side': self.risk_side,
+			'max_order_size': self.max_order_size,
+			'risk': self.risk,
+			'skew': skew,
+			'half_spread': half_spread,
+			'spread': self.spread,
+			'mid': self.mid,
+			'order': {'bid': (bid, bsize), 'ask': (ask, asize)}
+		}))
 		return {'bid': (bid, bsize), 'ask': (ask, asize)}
 		
 	@debounce(1)
@@ -261,12 +270,8 @@ class Trading(Link):
 					else:
 						new_order = {'sym': self.sym, 'side': side, 'size': size, 'price': price}
 					inserts.append(new_order)
-					
-			for order_id in cancels:
-				for x in self.cancel_order(self.venue, order_id=order_id, sym=self.sym)['data']:
-					key = 'bid' if x['side'] == 'Buy' else 'ask'
-					self.orders[key].pop(x['order_id'], None)
-					
+
+			logger.info('running updates for '+ str(len(updates)))
 			for update in updates:
 				try :				
 					data = self.amend_order(self.venue, **update)['data']
@@ -274,9 +279,11 @@ class Trading(Link):
 					self.orders[key][data['order_id']] = data
 				
 				except Exception as err:
-					logger.info('Error cancelling update order')
+					logger.info('Error cancelling update order, adding to cancels: '+update['order_id'])
 					logger.info(err)
+					cancels.append(update['order_id'])
 
+			logger.info('running inserts for '+ str(len(inserts)))
 			for insert in inserts:
 				try:
 					if self.post_only is True:
@@ -318,7 +325,11 @@ class Trading(Link):
 					logger.info('error create_limit_order')
 					logger.info(err)
 				
-				
+			logger.info('running cancels for '+ str(len(cancels)))
+			for order_id in cancels:
+				for x in self.cancel_order(self.venue, order_id=order_id, sym=self.sym)['data']:
+					key = 'bid' if x['side'] == 'Buy' else 'ask'
+					self.orders[key].pop(x['order_id'], None)
 		logger.info('\n' + json.dumps(log_msg))
 			
 	# TRADING EVENTS

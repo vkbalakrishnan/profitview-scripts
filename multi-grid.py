@@ -45,7 +45,7 @@ class Trading(Link):
         self.sym = {
 			'XBTUSDT' : {
 				'sym': 'XBTUSDT',
-				'grid_size': 20000,
+				'grid_size': 200000,
 				'candles': {},
 				'highs': {},
 				'lows': {},
@@ -53,7 +53,8 @@ class Trading(Link):
 				'max_risk': 1000000,
 				'current_risk': 0,
 				'price_precision': 0.5,
-				'price_decimals': 1
+				'price_decimals': 1,
+				'derisk': True
 			}, 
 			'ETHUSDT' : {
 				'sym': 'ETHUSDT',
@@ -94,7 +95,9 @@ class Trading(Link):
 		return talib.RSI(np.append(closes, [closes[-1] * (1 + ret)]))[-1]
 	
 	def stop_loss_price(self, highs, lows, closes):
-		return talib.ATR(np.array(highs), np.array(lows), np.array(closes), 14)
+		# logger.info('\n'+ sym['sym'] + ' ATR :'+ json.dumps({'highs': highs, 'lows':lows, 'closes':closes}))
+		logger.info(highs)
+		return talib.ATR(np.asarray(highs, dtype='float64'), np.asarray(lows, dtype='float64'), np.asarray(closes, dtype='float64'), 14)
 	
 	def minutely_update(self):
 		self.fetch_current_risk()
@@ -122,7 +125,6 @@ class Trading(Link):
 		highs = list(filter(None,highs))
 		lows = list(filter(None,lows))
 		
-		# logger.info('\n'+ sym['sym'] + ' ATR :'+ json.dumps({'highs': highs, 'lows':lows, 'closes':closes}))
 		# logger.info('\n'+ sym['sym'] + ' ATR :'+ self.stop_loss_price(highs, lows, closes))
 		closes = list(filter(None,closes))
 		X = np.linspace(-0.2, 0.2, 100)
@@ -190,11 +192,11 @@ class Trading(Link):
 			for bid in bids:
 				reduceOnly= True if multiplyer==2 and self.sym[sym]['current_risk'] > 0 else False
 				if reduceOnly is False:
-					self.create_order(self.venue, sym=sym, side='Buy', size=self.sym[sym]['grid_size']* multiplyer, price=bid, reduceOnly=reduceOnly)
+					self.create_order(self.venue, sym=sym, side='Buy', size=self.sym[sym]['grid_size']* multiplyer, price=bid, reduceOnly=False)
 			for ask in asks:
 				reduceOnly= True if multiplyer==2 and self.sym[sym]['current_risk'] < 0 else False
 				if reduceOnly is False:
-					self.create_order(self.venue, sym=sym, side='Sell', size=self.sym[sym]['grid_size']* multiplyer, price=ask, reduceOnly=reduceOnly)   
+					self.create_order(self.venue, sym=sym, side='Sell', size=self.sym[sym]['grid_size']* multiplyer, price=ask, reduceOnly=False)   
 
 			time.sleep(5)
 			logger.info('\n' + json.dumps(log_msg))

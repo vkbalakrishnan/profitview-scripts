@@ -7,8 +7,6 @@ import numpy as np
 import pandas as pd
 import scipy
 import talib
-from scipy.interpolate import interp1d
-from talib import RSI
 import threading
 import time
 
@@ -49,40 +47,54 @@ class Trading(Link):
 				'sym': 'XBTUSDT',
 				'grid_size': 20000,
 				'candles': {},
+				'highs': {},
+				'lows': {},
 				'tob': (np.nan, np.nan),
-				'max_risk': 100000,
-				'current_risk': 0
+				'max_risk': 1000000,
+				'current_risk': 0,
+				'price_precision': 0.5,
+				'price_decimals': 1
 			}, 
 			'ETHUSDT' : {
 				'sym': 'ETHUSDT',
 				'grid_size': 10000,
 				'candles': {},
+				'highs': {},
+				'lows': {},
 				'tob': (np.nan, np.nan),
-				'max_risk': 50000,
-				'current_risk': 0
-			} 
-			# 'SOLUSDT' : {
-			# 	'sym': 'SOLUSDT',
-			# 	'grid_size': 10000,
-			# 	'candles': {},
-			# 	'tob': (np.nan, np.nan),
-			# 	'max_risk': 100000,
-			# 	'current_risk': 0
-			# }
+				'max_risk': 250000,
+				'current_risk': 0,
+				'price_precision': 0.05,
+				'price_decimals': 2
+			}, 
+			'SOLUSDT' : {
+				'sym': 'SOLUSDT',
+				'grid_size': 10000,
+				'candles': {},
+				'highs': {},
+				'lows': {},
+				'tob': (np.nan, np.nan),
+				'max_risk': 200000,
+				'current_risk': 0,
+				'price_precision': 0.01,
+				'price_decimals': 2
+			}
 		}                          # symbol we will trade
         self.on_start()	
     
 	def on_start(self):
 		for sym in self.sym:
     		candles = self.fetch_candles(self.venue, sym, level='1m')
-			# logger.info(sym)
-			# logger.info('\n' + json.dumps(self.sym[sym]))
-			# logger.info('\n' + json.dumps(self.sym[sym]['candles']))
 			self.sym[sym]['candles'] = {x['time']: x['close'] for x in candles['data']} | self.sym[sym]['candles']	
+			self.sym[sym]['highs'] = {x['time']: x['high'] for x in candles['data']} | self.sym[sym]['highs']	
+			self.sym[sym]['lows'] = {x['time']: x['low'] for x in candles['data']} | self.sym[sym]['lows']	
     	self.minutely_update()
 		
 	def hypo_rsi(self, closes, ret):
-		return RSI(np.append(closes, [closes[-1] * (1 + ret)]))[-1]
+		return talib.RSI(np.append(closes, [closes[-1] * (1 + ret)]))[-1]
+	
+	def stop_loss_price(self, highs, lows, closes):
+		return talib.ATR(np.array(highs), np.array(lows), np.array(closes), 14)
 	
 	def minutely_update(self):
 		self.fetch_current_risk()
@@ -93,15 +105,29 @@ class Trading(Link):
        for x in self.fetch_positions(self.venue)['data']:
 			if x['sym'] in self.sym:
             	self.sym[x['sym']]['current_risk'] = x['pos_size']
-  
+	
+	def remove_duplicates(self, arr):
+		unique_items = list(set(arr))
+		return unique_items
+
+	def round_value(self, x, tick, decimals=0):
+		return np.round(tick * np.round(x / tick), decimals)
 
     def orders_intent(self, sym):
 		tob_bid, tob_ask = sym['tob']
 		times, closes = zip(*sorted(sym['candles'].items())[-100:])
+		timesh, highs = zip(*sorted(sym['highs'].items())[-100:])
+		timesl, lows = zip(*sorted(sym['lows'].items())[-100:])
+		closes = list(filter(None,closes))
+		highs = list(filter(None,highs))
+		lows = list(filter(None,lows))
+		
+		# logger.info('\n'+ sym['sym'] + ' ATR :'+ json.dumps({'highs': highs, 'lows':lows, 'closes':closes}))
+		# logger.info('\n'+ sym['sym'] + ' ATR :'+ self.stop_loss_price(highs, lows, closes))
 		closes = list(filter(None,closes))
 		X = np.linspace(-0.2, 0.2, 100)
 		Y = [self.hypo_rsi(closes, x) for x in X]
-		func = interp1d(Y, X, kind='cubic', fill_value='extrapolate')
+		func = scipy.interpolate.interp1d(Y, X, kind='cubic', fill_value='extrapolate')
 		# logger.info('\n' + json.dumps({
 		# 	'sym': sym['sym'],
 		# 	'total': 0.5 * round(closes[-1] * (1 + float(func(40))) / 0.5),
@@ -113,14 +139,19 @@ class Trading(Link):
 		# 	'current_risk': sym['current_risk']
 		# }))
 		orders = {
-			'bids': [np.min([tob_bid, (0.5 * round(closes[-1] * (1 + float(func(x))) / 0.5))]) for x in (40, 30, 20, 10)],
-			'asks': [np.max([tob_ask, (0.5 * round(closes[-1] * (1 + float(func(x))) / 0.5))]) for x in (60, 70, 80, 90)]
+			'bids': [np.min([tob_bid, self.round_value(0.5 * round(closes[-1] * (1 + float(func(x))) / 0.5,2),sym['price_precision'], sym['price_decimals'])]) for x in (40, 30, 20, 10)],
+			'asks': [np.max([tob_ask, self.round_value(0.5 * round(closes[-1] * (1 + float(func(x))) / 0.5,2),sym['price_precision'], sym['price_decimals'])]) for x in (60, 70, 80, 90)]
 		}
+		orders['bids'] = self.remove_duplicates(orders['bids'])
+		orders['asks'] = self.remove_duplicates(orders['asks'])
 		logger.info('\n'+ sym['sym'] + ':'+ json.dumps(orders))
 		return orders
     
-	def create_order(self, venue, sym, side, size, price):
+	def create_order(self, venue, sym, side, size, price, reduceOnly=False):
 		insert = {'symbol': sym, 'side': side, 'orderQty': size, 'price': price}
+		execs = ['ParticipateDoNotInitiate']
+		if reduceOnly is True: 
+			execs = ['ReduceOnly']
 		response = self.call_endpoint(
 			venue, 
 			'order', 
@@ -128,7 +159,7 @@ class Trading(Link):
 			method='POST', params={
 				**insert,
 				'ordType': 'Limit',
-				'execInst': 'ParticipateDoNotInitiate'
+				'execInst': ",".join(execs)
 			}
 		)
 		
@@ -149,20 +180,21 @@ class Trading(Link):
 
 			#cancel all current orders
 			self.cancel_order(self.venue, sym=sym)
-			if(abs(self.sym[sym]['current_risk']) < self.sym[sym]['max_risk'] or self.sym[sym]['current_risk'] <= 0):
-				# If we are at risk limits, place larger orders 
-				multiplyer = 1
-			if(abs(self.sym[sym]['current_risk']) >= self.sym[sym]['max_risk']):
-				multiplyer = 2
+
+			multiplyer = 2 if(abs(self.sym[sym]['current_risk']) >= self.sym[sym]['max_risk']) else 1
+			logger.info(json.dumps({
+				'risk': self.sym[sym]['current_risk'],
+				'multiplyer': multiplyer,
+				'reduceOnly': True if multiplyer==2 and self.sym[sym]['current_risk'] < 0 else False
+			}))
 			for bid in bids:
-				self.create_order(self.venue, sym=sym, side='Buy', size=self.sym[sym]['grid_size'], price=bid)		               
-			if(abs(self.sym[sym]['current_risk']) < self.sym[sym]['max_risk'] or self.sym[sym]['current_risk'] >= 0):
-				# If we are at risk limits, place larger orders 
-				multiplyer = 1
-			if(abs(self.sym[sym]['current_risk']) >= self.sym[sym]['max_risk']):
-				multiplyer = 2
+				reduceOnly= True if multiplyer==2 and self.sym[sym]['current_risk'] > 0 else False
+				if reduceOnly is False:
+					self.create_order(self.venue, sym=sym, side='Buy', size=self.sym[sym]['grid_size']* multiplyer, price=bid, reduceOnly=reduceOnly)
 			for ask in asks:
-				self.create_order(self.venue, sym=sym, side='Sell', size=self.sym[sym]['grid_size'], price=ask)   
+				reduceOnly= True if multiplyer==2 and self.sym[sym]['current_risk'] < 0 else False
+				if reduceOnly is False:
+					self.create_order(self.venue, sym=sym, side='Sell', size=self.sym[sym]['grid_size']* multiplyer, price=ask, reduceOnly=reduceOnly)   
 
 			time.sleep(5)
 			logger.info('\n' + json.dumps(log_msg))

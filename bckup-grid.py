@@ -39,7 +39,8 @@ class Trading(Link):
     
     def __init__(self):
         super().__init__()
-        self.last_order_at = time.time()
+		# health
+		self.last_order_at = time.time()
         # ALGO PARAMS
         self.src = 'BitMEX'                         # exchange name
         self.venue = 'BitMEX-Pro'                         # API key name
@@ -51,11 +52,11 @@ class Trading(Link):
 				'highs': {},
 				'lows': {},
 				'tob': (np.nan, np.nan),
-				'max_risk': 1000000,
+				'max_risk': 20000*20,
+				# 'max_risk': 800000,
 				'current_risk': 0,
 				'price_precision': 0.5,
 				'price_decimals': 1,
-				'derisk': True
 			}, 
 			'ETHUSDT' : {
 				'sym': 'ETHUSDT',
@@ -64,19 +65,20 @@ class Trading(Link):
 				'highs': {},
 				'lows': {},
 				'tob': (np.nan, np.nan),
-				'max_risk': 250000,
+				'max_risk': 10000*20,
+				# 'max_risk': 150000,
 				'current_risk': 0,
 				'price_precision': 0.05,
 				'price_decimals': 2
 			}, 
 			'SOLUSDT' : {
 				'sym': 'SOLUSDT',
-				'grid_size': 100000,
+				'grid_size': 20000,
 				'candles': {},
 				'highs': {},
 				'lows': {},
 				'tob': (np.nan, np.nan),
-				'max_risk': 3000000,
+				'max_risk': 20000*20,
 				'current_risk': 0,
 				'price_precision': 0.01,
 				'price_decimals': 2
@@ -101,14 +103,25 @@ class Trading(Link):
 		return talib.ATR(np.array(highs, dtype=np.float64), np.array(lows, dtype=np.float64), np.array(closes, dtype=np.float64), 14)[-1]
 	
 	def minutely_update(self):
-		self.fetch_current_risk()
-		self.update_limit_orders()
+		try:
+			self.fetch_current_risk()
+		except Exception as e:
+			logger.error('Failed to fetch_current_risk')
+			logger.error(e)
+			
+		try:
+			self.update_limit_orders()
+		except Exception as e:
+			logger.error('Failed to update_limit_orders')
+			logger.error(e)
+		
         threading.Timer(61 - self.second, self.minutely_update).start()
         
     def fetch_current_risk(self):
-       for x in self.fetch_positions(self.venue)['data']:
+		for x in self.fetch_positions(self.venue)['data']:
 			if x['sym'] in self.sym:
-            	self.sym[x['sym']]['current_risk'] = x['pos_size']
+				self.sym[x['sym']]['current_risk'] = x['pos_size']
+		
 	
 	def remove_duplicates(self, arr):
 		unique_items = list(set(arr))
@@ -120,15 +133,23 @@ class Trading(Link):
     def orders_intent(self, sym):
 		tob_bid, tob_ask = sym['tob']
 		times, closes = zip(*sorted(sym['candles'].items())[-100:])
-		# timesh, highs = zip(*sorted(sym['highs'].items())[-100:])
-		# timesl, lows = zip(*sorted(sym['lows'].items())[-100:])
+		timesh, highs = zip(*sorted(sym['highs'].items())[-100:])
+		timesl, lows = zip(*sorted(sym['lows'].items())[-100:])
+		
 		closes = list(filter(None,closes))
-		# highs = list(filter(None,highs))
-		# lows = list(filter(None,lows))
-		# atr = self.stop_loss_price(highs, lows, closes)
-		# logger.info('\n'+ sym['sym'] + ' ATR :'+ str(atr))
-		# logger.info('\n'+ sym['sym'] + ' ATR*2 :'+ str(atr*2))
-		closes = list(filter(None,closes))
+		highs = list(filter(None,highs))
+		lows = list(filter(None,lows))
+
+		atr = self.stop_loss_price(highs, lows, closes)
+		rsi = self.hypo_rsi(closes, 0)
+		
+		logger.info('\n'+ sym['sym'] + ' ATR :'+ str(atr))
+		logger.info('\n'+ sym['sym'] + ' RSI :'+ str(rsi))
+		if rsi < 30 or rsi> 70:
+			return {
+				'bids': [],
+				'asks': []
+			}
 		X = np.linspace(-0.2, 0.2, 100)
 		Y = [self.hypo_rsi(closes, x) for x in X]
 		func = scipy.interpolate.interp1d(Y, X, kind='cubic', fill_value='extrapolate')
@@ -143,8 +164,8 @@ class Trading(Link):
 		# 	'current_risk': sym['current_risk']
 		# }))
 		orders = {
-			'bids': [np.min([tob_bid, self.round_value(0.5 * round(closes[-1] * (1 + float(func(x))) / 0.5,2),sym['price_precision'], sym['price_decimals'])]) for x in (40, 30, 20, 10)],
-			'asks': [np.max([tob_ask, self.round_value(0.5 * round(closes[-1] * (1 + float(func(x))) / 0.5,2),sym['price_precision'], sym['price_decimals'])]) for x in (60, 70, 80, 90)]
+			'bids': [np.min([tob_bid, self.round_value(0.5 * round(closes[-1] * (1 + float(func(x))) / 0.5,2),sym['price_precision'], sym['price_decimals'])]) for x in (40, 30, 20)],
+			'asks': [np.max([tob_ask, self.round_value(0.5 * round(closes[-1] * (1 + float(func(x))) / 0.5,2),sym['price_precision'], sym['price_decimals'])]) for x in (60, 70, 80)]
 		}
 		orders['bids'] = self.remove_duplicates(orders['bids'])
 		orders['asks'] = self.remove_duplicates(orders['asks'])
@@ -174,7 +195,7 @@ class Trading(Link):
 			tob_bid, tob_ask = self.sym[sym]['tob']
 			if(np.isnan(tob_bid) or np.isnan(tob_ask)):
 				continue 
-	
+
 			#cancel all current orders
 			try:
 				self.cancel_order(self.venue, sym=sym)
@@ -190,8 +211,6 @@ class Trading(Link):
 				'bids': bids,
 				'asks': asks,
 			}
-
-
 			multiplyer = 2 if(abs(self.sym[sym]['current_risk']) >= self.sym[sym]['max_risk']) else 1
 			logger.info(json.dumps({
 				'risk': self.sym[sym]['current_risk'],
@@ -225,7 +244,8 @@ class Trading(Link):
 						
 			time.sleep(5)
 			logger.info('\n' + json.dumps(log_msg))
-            self.last_order_at = time.time()
+			self.last_order_at = time.time()
+            
 
     def trade_update(self, src, sym, data):
 		if sym in self.sym:
@@ -235,7 +255,7 @@ class Trading(Link):
         if sym in self.sym:
             self.sym[sym]['tob'] = (data['bid'][0], data['ask'][0])
     
-    @http.route
+	@http.route
 	def get_health(self, data):
 		if time.time() - self.last_order_at < 180:
 			return time.time() - self.last_order_at

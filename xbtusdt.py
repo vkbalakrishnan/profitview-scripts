@@ -76,7 +76,7 @@ class Trading(Link):
 		
 		# ALGO PARAMS
 		self.skew_damp = 2                          # skew dampening
-		self.max_order_size = 100000                # max position risk limit
+		self.max_order_size = 10000                # max position risk limit
 		self.max_risk_size = 500000					# max size for current position
 		self.sharpe_target = 2                   	# target sharpe ratio
 		self.fee_cost = -0.0002                     # cost of entering and exiting position (bps/10000)
@@ -90,6 +90,8 @@ class Trading(Link):
 		self.post_only = True 						# false for normal limit order which may cross the book	
 		# RUN ON STARTUP
 		self.on_startup()
+		self.last_order_at = time.time()
+
 
 	@property
 	def time_bin_now(self):
@@ -213,6 +215,8 @@ class Trading(Link):
 		# 	'order': {'bid': (bid, bsize), 'ask': (ask, asize)}
 		# }))
 		return {'bid': (bid, bsize), 'ask': (ask, asize)}
+
+
 		
 	@debounce(1)
 	def update_limit_orders(self):
@@ -317,7 +321,7 @@ class Trading(Link):
 					logger.info('error create_limit_order')
 					logger.info(err)
 				
-				
+		self.last_order_at = time.time()	
 		logger.info('\n' + json.dumps(log_msg))
 			
 	# TRADING EVENTS
@@ -356,3 +360,9 @@ class Trading(Link):
 			if hasattr(self, k):
 				setattr(self, k, v)
 		return self.get_state({'keys': list(data)})
+
+	@http.route
+	def get_health(self, data):
+		if time.time() - self.last_order_at < 180:
+			return time.time() - self.last_order_at
+		return Exception
